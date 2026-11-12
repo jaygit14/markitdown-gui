@@ -19,7 +19,10 @@ A Windows desktop app (single `.exe`) wrapping Microsoft's
 Push this folder to a GitHub repo. The workflow in `.github/workflows/build-exe.yml`
 builds on `windows-latest`, runs a self-test against the built exe, and uploads
 `MarkItDownGUI.exe` as a build artifact (Actions → latest run → *Artifacts*).
-Pushing a tag like `v1.0.0` also attaches the exe to a GitHub Release.
+To publish a release: **Actions → Build Windows EXE → Run workflow**, enter a tag such as
+`v1.1.0`, and run it. The workflow builds and tests the exe, then creates that GitHub Release
+with `MarkItDownGUI.exe` attached (notes come from `RELEASE_NOTES.md`).
+Pushing a tag like `v1.1.0` from your own machine does the same.
 
 ### Option B – build locally on Windows
 Requires Python 3.10+ (python.org installer, with "Add to PATH" and Tcl/Tk ticked).
