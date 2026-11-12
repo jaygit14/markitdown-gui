@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create a GitHub Release with this tag (e.g. v1.0.0). Leave empty to just build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -45,4 +50,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          files: dist/MarkItDownGUI.exe
+          body_path: RELEASE_NOTES.md
+
+      - name: Create release (manual run with a tag)
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: MarkItDown GUI ${{ inputs.release_tag }}
+          body_path: RELEASE_NOTES.md
           files: dist/MarkItDownGUI.exe
