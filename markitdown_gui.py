@@ -8,6 +8,11 @@ from __future__ import annotations
 import os
 import sys
 
+if sys.stdout is None or sys.stderr is None:  # windowed (no-console) exe
+    _null = open(os.devnull, "w", encoding="utf-8")
+    sys.stdout = sys.stdout or _null
+    sys.stderr = sys.stderr or _null
+
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--selftest":
     import selftest  # headless check used by CI; runs before tkinter is imported
     sys.exit(selftest.run(sys.argv[2] if len(sys.argv) > 2 else "selftest.txt"))
@@ -22,12 +27,13 @@ from tkinter import filedialog, messagebox, ttk
 import converter
 
 try:  # optional drag & drop support
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-    BaseTk = TkinterDnD.Tk
-    HAS_DND = True
+    from tkinterdnd2 import DND_FILES
+    from tkinterdnd2.TkinterDnD import DnDWrapper, _require as _dnd_require
 except Exception:  # pragma: no cover
-    BaseTk = tk.Tk
-    HAS_DND = False
+    DND_FILES, _dnd_require = None, None
+
+    class DnDWrapper:  # type: ignore[no-redef]
+        pass
 
 APP_NAME = "MarkItDown GUI"
 try:
@@ -44,9 +50,17 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
-class App(BaseTk):
+class App(tk.Tk, DnDWrapper):
     def __init__(self) -> None:
         super().__init__()
+        self.has_dnd = False
+        if _dnd_require is not None:
+            try:
+                self.TkdndVersion = _dnd_require(self)
+                self.has_dnd = True
+            except Exception:
+                log_error("Drag & drop unavailable (continuing without it)")
+        self.report_callback_exception = self._report_callback_exception
         self.title(f"{APP_NAME}  (markitdown {MD_VERSION})")
         self.geometry("1100x700")
         self.minsize(820, 520)
@@ -104,7 +118,7 @@ class App(BaseTk):
         left = ttk.Frame(panes)
         panes.add(left, weight=1)
 
-        list_frame = ttk.LabelFrame(left, text="Inputs" + ("  (drag & drop files here)" if HAS_DND else ""))
+        list_frame = ttk.LabelFrame(left, text="Inputs" + ("  (drag & drop files here)" if self.has_dnd else ""))
         list_frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(list_frame, columns=("name", "status"), show="headings", selectmode="extended")
         self.tree.heading("name", text="File / URL")
@@ -120,7 +134,7 @@ class App(BaseTk):
         self.tree.bind("<Double-1>", lambda e: self.open_output())
         self.tree.tag_configure("failed", foreground="#b00020")
         self.tree.tag_configure("done", foreground="#1b7f3a")
-        if HAS_DND:
+        if self.has_dnd:
             for w in (self.tree, list_frame):
                 w.drop_target_register(DND_FILES)
                 w.dnd_bind("<<Drop>>", self._on_drop)
@@ -398,11 +412,82 @@ class App(BaseTk):
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
 
+    def _report_callback_exception(self, exc, val, tb) -> None:
+        path = log_error("Unexpected error", (exc, val, tb))
+        messagebox.showerror(APP_NAME, f"Unexpected error:\n{val}\n\nDetails were saved to:\n{path}")
+
     def _on_close(self) -> None:
         if self._busy() and not messagebox.askyesno(APP_NAME, "A conversion is running. Quit anyway?"):
             return
         self.cancel_flag.set()
         self.destroy()
+
+
+def log_path() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    d = Path(base) / "MarkItDownGUI"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "error.log"
+
+
+def log_error(title: str, exc_info=None) -> str:
+    """Append a traceback to %LOCALAPPDATA%\\MarkItDownGUI\\error.log and return its path."""
+    import datetime
+    try:
+        p = log_path()
+        text = "".join(traceback.format_exception(*exc_info)) if exc_info else traceback.format_exc()
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(f"\n=== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} {title}\n{text}")
+        return str(p)
+    except Exception:
+        return "(could not write log)"
+
+
+def _fatal(exc_info) -> None:
+    """Last-resort error report when the window can't even open."""
+    path = log_error("Startup failure", exc_info)
+    msg = f"{APP_NAME} could not start:\n\n{exc_info[1]}\n\nDetails were saved to:\n{path}"
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, msg, APP_NAME, 0x10)
+    except Exception:
+        print(msg, file=sys.stderr)
+
+
+def gui_selftest(report: str) -> int:
+    """Open the real window, convert a sample file through the normal worker, then close."""
+    import tempfile
+    lines, rc = [], 1
+    try:
+        tmp = tempfile.mkdtemp()
+        sample = os.path.join(tmp, "gui_sample.html")
+        Path(sample).write_text("<h1>GUI test</h1><p>ok</p>", encoding="utf-8")
+        app = App()
+        lines.append(f"window opened; drag&drop={'yes' if app.has_dnd else 'NO'}")
+        app._add_source(sample)
+        app.after(500, app.start_conversion)
+
+        def check(deadline=[120]):
+            item = next(iter(app.items.values()))
+            if item["markdown"] is not None or item["error"] or deadline[0] <= 0:
+                lines.append(f"markdown={item['markdown']!r} error={item['error']!r} output={item['output']!r}")
+                ok = item["markdown"] is not None and "# GUI test" in item["markdown"] \
+                    and item["output"] and os.path.exists(item["output"])
+                lines.append("RESULT: " + ("OK" if ok else "FAILED"))
+                app._rc = 0 if ok else 1
+                app.destroy()
+            else:
+                deadline[0] -= 1
+                app.after(500, check)
+
+        app._rc = 1
+        app.after(1000, check)
+        app.mainloop()
+        rc = app._rc
+    except Exception:
+        lines.append("FATAL\n" + traceback.format_exc())
+    Path(report).write_text("\n".join(lines), encoding="utf-8")
+    return rc
 
 
 def _open_path(path: str) -> None:
@@ -421,6 +506,8 @@ def main() -> None:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
+    if len(sys.argv) > 1 and sys.argv[1] == "--gui-selftest":
+        sys.exit(gui_selftest(sys.argv[2] if len(sys.argv) > 2 else "gui_selftest.txt"))
     app = App()
     for arg in sys.argv[1:]:   # supports "Open with…" / dragging files onto the .exe
         if os.path.isdir(arg):
@@ -432,4 +519,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        _fatal(sys.exc_info())
+        sys.exit(1)

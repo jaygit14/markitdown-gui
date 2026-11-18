@@ -41,6 +41,16 @@ jobs:
           Get-Content selftest.txt
           if ($p.ExitCode -ne 0) { throw "self-test failed ($($p.ExitCode))" }
 
+      - name: GUI test (open the window and convert a file)
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\MarkItDownGUI.exe -ArgumentList "--gui-selftest","gui_selftest.txt" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "GUI test timed out (window hung)" }
+          if (Test-Path gui_selftest.txt) { Get-Content gui_selftest.txt } else { Write-Host "no report written" }
+          $log = Join-Path $env:LOCALAPPDATA "MarkItDownGUI\error.log"
+          if (Test-Path $log) { Write-Host "--- error.log ---"; Get-Content $log }
+          if ($p.ExitCode -ne 0) { throw "GUI test failed ($($p.ExitCode))" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: MarkItDownGUI
