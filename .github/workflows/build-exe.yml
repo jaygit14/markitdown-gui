@@ -34,6 +34,15 @@ jobs:
       - name: Build exe
         run: pyinstaller --noconfirm --clean MarkItDownGUI.spec
 
+      - name: Check the VC++ runtime is bundled
+        shell: pwsh
+        run: |
+          $list = pyi-archive_viewer --list dist\MarkItDownGUI.exe | Out-String
+          foreach ($dll in "msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll") {
+            if ($list -notmatch [regex]::Escape($dll)) { throw "$dll is not bundled" }
+            Write-Host "bundled: $dll"
+          }
+
       - name: Self-test the built exe
         shell: pwsh
         run: |

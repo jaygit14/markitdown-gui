@@ -15,6 +15,22 @@ for pkg in ("markitdown", "magika", "tkinterdnd2", "pdfminer", "mammoth", "pptx"
 
 hiddenimports += collect_submodules("markitdown.converters") + ["selftest", "converter"]
 import os
+import sys
+
+# Bundle the Microsoft Visual C++ runtime (redistributable DLLs). numpy and onnxruntime
+# need msvcp140.dll / vcruntime140_1.dll, which PCs without the VC++ Redistributable lack,
+# causing "ImportError: import numpy failed" at startup.
+if sys.platform == "win32":
+    sysdir = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    for dll in ("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "vcruntime140.dll",
+                "vcruntime140_1.dll", "concrt140.dll", "vcomp140.dll"):
+        path = os.path.join(sysdir, dll)
+        if os.path.exists(path):
+            binaries.append((path, "."))
+            print(f"[spec] bundling {dll}")
+        else:
+            print(f"[spec] WARNING: {dll} not found")
+
 ICON = "icon.ico" if os.path.exists("icon.ico") else None
 if ICON:
     datas += [(ICON, ".")]

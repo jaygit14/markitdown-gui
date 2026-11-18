@@ -24,7 +24,12 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-import converter
+try:
+    import converter
+    _IMPORT_ERROR = None
+except Exception:  # shown to the user by _fatal() at startup instead of a raw traceback
+    converter = None  # type: ignore[assignment]
+    _IMPORT_ERROR = sys.exc_info()
 
 try:  # optional drag & drop support
     from tkinterdnd2 import DND_FILES
@@ -446,7 +451,12 @@ def log_error(title: str, exc_info=None) -> str:
 def _fatal(exc_info) -> None:
     """Last-resort error report when the window can't even open."""
     path = log_error("Startup failure", exc_info)
-    msg = f"{APP_NAME} could not start:\n\n{exc_info[1]}\n\nDetails were saved to:\n{path}"
+    hint = ""
+    if isinstance(exc_info[1], ImportError):
+        hint = ("\n\nThis usually means a Windows system component is missing. Installing the "
+                "Microsoft Visual C++ Redistributable (x64) from https://aka.ms/vs/17/release/vc_redist.x64.exe "
+                "and restarting the app normally fixes it.")
+    msg = f"{APP_NAME} could not start:\n\n{exc_info[1]}{hint}\n\nDetails were saved to:\n{path}"
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, msg, APP_NAME, 0x10)
@@ -519,6 +529,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if _IMPORT_ERROR is not None:
+        _fatal(_IMPORT_ERROR)
+        sys.exit(1)
     try:
         main()
     except SystemExit:
