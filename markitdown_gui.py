@@ -25,6 +25,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 try:
+    import numpy  # noqa: F401  (imported first so its own, clearer error surfaces)
     import converter
     _IMPORT_ERROR = None
 except Exception:  # shown to the user by _fatal() at startup instead of a raw traceback
@@ -451,12 +452,20 @@ def log_error(title: str, exc_info=None) -> str:
 def _fatal(exc_info) -> None:
     """Last-resort error report when the window can't even open."""
     path = log_error("Startup failure", exc_info)
+    root = exc_info[1]
+    while root.__cause__ or root.__context__:
+        root = root.__cause__ or root.__context__
+    import platform
+    sysinfo = (f"Windows {platform.version()} | {os.environ.get('PROCESSOR_ARCHITECTURE', platform.machine())}"
+               f" | {os.environ.get('PROCESSOR_IDENTIFIER', '?')}")
+    detail = f"{exc_info[1]}" + (f"\n\nCause: {type(root).__name__}: {root}" if root is not exc_info[1] else "")
     hint = ""
     if isinstance(exc_info[1], ImportError):
         hint = ("\n\nThis usually means a Windows system component is missing. Installing the "
                 "Microsoft Visual C++ Redistributable (x64) from https://aka.ms/vs/17/release/vc_redist.x64.exe "
                 "and restarting the app normally fixes it.")
-    msg = f"{APP_NAME} could not start:\n\n{exc_info[1]}{hint}\n\nDetails were saved to:\n{path}"
+    msg = (f"{APP_NAME} could not start:\n\n{detail}{hint}\n\nSystem: {sysinfo}"
+           f"\n\nDetails were saved to:\n{path}\n(Press Ctrl+C to copy this message.)")
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, msg, APP_NAME, 0x10)

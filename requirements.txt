@@ -1,3 +1,5 @@
 markitdown[pdf,docx,pptx,xlsx,xls,outlook,youtube-transcription]==0.1.9
 tkinterdnd2==0.4.3
+# numpy 2.4+ requires an x86-64-v2 CPU (SSE4.2); 2.3.x runs on any x64 CPU
+numpy==2.3.5
 pyinstaller==6.16.0
